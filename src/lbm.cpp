@@ -93,7 +93,7 @@ string default_filename(const string& name, const string& extension, const ulong
 
 
 
-LBM_Domain::LBM_Domain(const Device_Info& device_info, const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const int Ox, const int Oy, const int Oz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho) { // constructor with manual device selection and domain offset
+LBM_Domain::LBM_Domain(const Device_Info& device_info, const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const int Ox, const int Oy, const int Oz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho) { // constructor with manual device selection and domain offset
 	this->Nx = Nx; this->Ny = Ny; this->Nz = Nz;
 	this->Dx = Dx; this->Dy = Dy; this->Dz = Dz;
 	this->Ox = Ox; this->Oy = Oy; this->Oz = Oz;
@@ -101,6 +101,7 @@ LBM_Domain::LBM_Domain(const Device_Info& device_info, const uint Nx, const uint
 	this->fx = fx; this->fy = fy; this->fz = fz;
 	this->sigma = sigma;
 	this->alpha = alpha; this->beta = beta;
+	this->adiabatic_factor = adiabatic_factor;
 	this->particles_N = particles_N;
 	this->particles_rho = particles_rho;
 	string opencl_c_code;
@@ -448,6 +449,7 @@ string LBM_Domain::device_defines() const { return
 	"\n	#define TEMPERATURE"
 	"\n	#define def_w_T "+to_string(1.0f/(2.0f*alpha+0.5f))+"f" // wT = dt/tauT = 1/(2*alpha+1/2), alpha = thermal diffusion coefficient
 	"\n	#define def_beta "+to_string(beta)+"f" // thermal expansion coefficient
+	"\n #define def_adiabatic_lapse_factor "+to_string(adiabatic_factor)+"f" // Factor for adiabatic source term: (1-w_T/2)*Gamma_LBM
 	"\n	#define def_T_avg "+to_string(T_avg)+"f" // average temperature
 #endif // TEMPERATURE
 
@@ -660,8 +662,8 @@ vector<Device_Info> smart_device_selection(const uint D) {
 	return device_infos;
 }
 
-LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho) // single device
-	:LBM(Nx, Ny, Nz, 1u, 1u, 1u, nu, fx, fy, fz, sigma, alpha, beta, particles_N, particles_rho) { // delegating constructor
+LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho) // single device
+	:LBM(Nx, Ny, Nz, 1u, 1u, 1u, nu, fx, fy, fz, sigma, alpha, beta, adiabatic_factor, particles_N, particles_rho) { // delegating constructor
 }
 LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const float nu, const float fx, const float fy, const float fz, const uint particles_N, const float particles_rho)
 	:LBM(Nx, Ny, Nz, 1u, 1u, 1u, nu, fx, fy, fz, 0.0f, 0.0f, 0.0f, particles_N, particles_rho) { // delegating constructor
@@ -669,11 +671,11 @@ LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const float nu, const floa
 LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const float nu, const uint particles_N, const float particles_rho)
 	:LBM(Nx, Ny, Nz, 1u, 1u, 1u, nu, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, particles_N, particles_rho) { // delegating constructor
 }
-LBM::LBM(const uint3 N, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho)
-	:LBM(N.x, N.y, N.z, Dx, Dy, Dz, nu, fx, fy, fz, sigma, alpha, beta, particles_N, particles_rho) { // delegating constructor
+LBM::LBM(const uint3 N, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho)
+	:LBM(N.x, N.y, N.z, Dx, Dy, Dz, nu, fx, fy, fz, sigma, alpha, beta, adiabatic_factor, particles_N, particles_rho) { // delegating constructor
 }
-LBM::LBM(const uint3 N, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho) // single device
-	:LBM(N.x, N.y, N.z, 1u, 1u, 1u, nu, fx, fy, fz, sigma, alpha, beta, particles_N, particles_rho) { // delegating constructor
+LBM::LBM(const uint3 N, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho) // single device
+	:LBM(N.x, N.y, N.z, 1u, 1u, 1u, nu, fx, fy, fz, sigma, alpha, beta, adiabatic_factor, particles_N, particles_rho) { // delegating constructor
 }
 LBM::LBM(const uint3 N, const float nu, const uint particles_N, const float particles_rho)
 	:LBM(N.x, N.y, N.z, 1u, 1u, 1u, nu, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, particles_N, particles_rho) { // delegating constructor
@@ -681,7 +683,7 @@ LBM::LBM(const uint3 N, const float nu, const uint particles_N, const float part
 LBM::LBM(const uint3 N, const float nu, const float fx, const float fy, const float fz, const uint particles_N, const float particles_rho)
 	:LBM(N.x, N.y, N.z, 1u, 1u, 1u, nu, fx, fy, fz, 0.0f, 0.0f, 0.0f, particles_N, particles_rho) { // delegating constructor
 }
-LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho) { // multiple devices
+LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho) { // multiple devices
 	const uint NDx=(Nx/Dx)*Dx, NDy=(Ny/Dy)*Dy, NDz=(Nz/Dz)*Dz; // make resolution equally divisible by domains
 	if(NDx!=Nx||NDy!=Ny||NDz!=Nz) print_warning("LBM grid ("+to_string(Nx)+"x"+to_string(Ny)+"x"+to_string(Nz)+") is not equally divisible in domains ("+to_string(Dx)+"x"+to_string(Dy)+"x"+to_string(Dz)+"). Changing resolution to ("+to_string(NDx)+"x"+to_string(NDy)+"x"+to_string(NDz)+").");
 	this->Nx = NDx; this->Ny = NDy; this->Nz = NDz;
@@ -689,11 +691,11 @@ LBM::LBM(const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint 
 	const uint D = Dx*Dy*Dz;
 	const uint Hx=Dx>1u, Hy=Dy>1u, Hz=Dz>1u; // halo offsets
 	const vector<Device_Info>& device_infos = smart_device_selection(D);
-	sanity_checks_constructor(device_infos, this->Nx, this->Ny, this->Nz, Dx, Dy, Dz, nu, fx, fy, fz, sigma, alpha, beta, particles_N, particles_rho);
+	sanity_checks_constructor(device_infos, this->Nx, this->Ny, this->Nz, Dx, Dy, Dz, nu, fx, fy, fz, sigma, alpha, beta, adiabatic_factor, particles_N, particles_rho);
 	lbm_domain = new LBM_Domain*[D];
 	for(uint d=0u; d<D; d++) { // parallel_for((ulong)D, D, [&](ulong d) {
 		const uint x=((uint)d%(Dx*Dy))%Dx, y=((uint)d%(Dx*Dy))/Dx, z=(uint)d/(Dx*Dy); // d = x+(y+z*Dy)*Dx
-		lbm_domain[d] = new LBM_Domain(device_infos[d], this->Nx/Dx+2u*Hx, this->Ny/Dy+2u*Hy, this->Nz/Dz+2u*Hz, Dx, Dy, Dz, (int)(x*this->Nx/Dx)-(int)Hx, (int)(y*this->Ny/Dy)-(int)Hy, (int)(z*this->Nz/Dz)-(int)Hz, nu, fx, fy, fz, sigma, alpha, beta, particles_N, particles_rho);
+		lbm_domain[d] = new LBM_Domain(device_infos[d], this->Nx/Dx+2u*Hx, this->Ny/Dy+2u*Hy, this->Nz/Dz+2u*Hz, Dx, Dy, Dz, (int)(x*this->Nx/Dx)-(int)Hx, (int)(y*this->Ny/Dy)-(int)Hy, (int)(z*this->Nz/Dz)-(int)Hz, nu, fx, fy, fz, sigma, alpha, beta, adiabatic_factor, particles_N, particles_rho);
 	} // });
 	{
 		Memory<float>** buffers_rho = new Memory<float>*[D];
@@ -743,7 +745,7 @@ LBM::~LBM() {
 	delete[] lbm_domain;
 }
 
-void LBM::sanity_checks_constructor(const vector<Device_Info>& device_infos, const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const uint particles_N, const float particles_rho) { // sanity checks on grid resolution and extension support
+void LBM::sanity_checks_constructor(const vector<Device_Info>& device_infos, const uint Nx, const uint Ny, const uint Nz, const uint Dx, const uint Dy, const uint Dz, const float nu, const float fx, const float fy, const float fz, const float sigma, const float alpha, const float beta, const float adiabatic_factor, const uint particles_N, const float particles_rho) { // sanity checks on grid resolution and extension support
 	if((ulong)Nx*(ulong)Ny*(ulong)Nz==0ull) print_error("Grid point number is 0: "+to_string(Nx)+"x"+to_string(Ny)+"x"+to_string(Nz)+" = 0.");
 	if(Dx*Dy*Dz==0u) print_error("You specified 0 LBM grid domains ("+to_string(Dx)+"x"+to_string(Dy)+"x"+to_string(Dz)+"). There has to be at least 1 domain in every direction. Check your input in LBM constructor.");
 	const uint local_Nx=Nx/Dx+2u*(Dx>1u), local_Ny=Ny/Dy+2u*(Dy>1u), local_Nz=Nz/Dz+2u*(Dz>1u);
@@ -1027,6 +1029,7 @@ void LBM::write_status(const string& path) { // write LBM status report to a .tx
 #ifdef TEMPERATURE
 	status += "Thermal Diffusion Coefficient = "+to_string(get_alpha())+"\n";
 	status += "Thermal Expansion Coefficient = "+to_string(get_beta())+"\n";
+	status += "Adiabatic Factor = "+to_string(get_adiabatic_factor())+"\n";
 #endif // TEMPERATURE
 	const string filename = default_filename(path, "status", ".txt", get_t());
 	write_file(filename, status);

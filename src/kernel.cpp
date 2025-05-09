@@ -1546,8 +1546,15 @@ string opencl_c_container() { return R( // ########################## begin of O
 			for(uint i=0u; i<7u; i++) Tn += ghn[i]; // calculate temperature from g
 			Tn += 1.0f; // add 1.0f last to avoid digit extinction effects when summing up gi (perturbation method / DDF-shifting)
 		}
+
 		float geq[7]; // cache f_equilibrium[n]
 		calculate_g_eq(Tn, uxn, uyn, uzn, geq); // calculate equilibrium DDFs
+
+		const float stratification_factor = def_beta * fz;
+
+		geq[5] += 0.5f * def_adiabatic_lapse_factor * stratification_factor;
+		geq[6] -= 0.5f * def_adiabatic_lapse_factor * stratification_factor;
+
 		if(flagsn&TYPE_T) {
 			for(uint i=0u; i<7u; i++) ghn[i] = geq[i]; // just write geq to ghn (no collision)
 		} else {

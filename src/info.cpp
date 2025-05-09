@@ -92,6 +92,7 @@ void Info::print_initialize(LBM* lbm) {
 #ifdef TEMPERATURE
 	println("| Thermal Diff.   | "+alignr(57u, /**********************************************************************************/ to_string(lbm->get_alpha(), 8u))+" |");
 	println("| Thermal Exp.    | "+alignr(57u, /***********************************************************************************/ to_string(lbm->get_beta(), 8u))+" |");
+	println("| Adiabatic Factor| "+alignr(57u, /**********************************************************************************/ to_string(lbm->get_adiabatic_factor(), 8u))+" |");
 #endif // TEMPERATURE
 #ifndef INTERACTIVE_GRAPHICS_ASCII
 	println("|---------.-------'-----.-----------.-------------------.---------------------|");
