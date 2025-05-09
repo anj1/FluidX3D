@@ -1331,3 +1331,181 @@ void main_setup() { // benchmark; required extensions in defines.hpp: BENCHMARK,
 	lbm.run();
 	//lbm.run(1000u); lbm.u.read_from_device(); println(lbm.u.x[lbm.index(Nx/2u, Ny/2u, Nz/2u)]); wait(); // test for binary identity
 } /**/
+
+/*void main_setup() { // thermal convection; required extensions in defines.hpp: FP16S, VOLUME_FORCE, TEMPERATURE, INTERACTIVE_GRAPHICS
+	// ################################################################## define simulation box size, viscosity and volume force ###################################################################
+	LBM lbm(32u, 196u, 60u, 1u, 1u, 1u, 0.02f, 0.0f, 0.0f, -0.0005f, 0.0f, 1.0f, 1.0f);
+	// ###################################################################################### define geometry ######################################################################################
+	const uint Nx=lbm.get_Nx(), Ny=lbm.get_Ny(), Nz=lbm.get_Nz(); parallel_for(lbm.get_N(), [&](ulong n) { uint x=0u, y=0u, z=0u; lbm.coordinates(n, x, y, z);
+		if(y==1) {
+			lbm.T[n] = 1.8f;
+			lbm.flags[n] = TYPE_T;
+		} else if(y==Ny-2) {
+			lbm.T[n] = 0.3f;
+			lbm.flags[n] = TYPE_T;
+		}
+		lbm.rho[n] = units.rho_hydrostatic(0.0005f, (float)z, 0.5f*(float)Nz); // initialize density with hydrostatic pressure
+		if(x==0u||x==Nx-1u||y==0u||y==Ny-1u||z==0u||z==Nz-1u) lbm.flags[n] = TYPE_S; // all non periodic
+	}); // ####################################################################### run simulation, export images and data ##########################################################################
+	lbm.graphics.visualization_modes = VIS_FLAG_LATTICE|VIS_STREAMLINES;
+	lbm.run();
+	//lbm.run(1000u); lbm.u.read_from_device(); println(lbm.u.x[lbm.index(Nx/2u, Ny/2u, Nz/2u)]); wait(); // test for binary identity
+} /**/
+
+#include <math.h> // Required for exp() function
+
+/**
+ * @brief Calculates the atmospheric temperature using an exponential model.
+ *
+ * This function calculates the temperature based on an exponential fit
+ * derived from data points at 0 km and 3 km altitude.
+ * Note: The standard atmosphere model often uses a linear lapse rate for
+ * temperature in the troposphere, not exponential. This function implements
+ * the requested exponential fit.
+ *
+ * @param altitude_km The altitude in kilometers (valid range assumed 0-3 km).
+ * @return The calculated temperature in Kelvin (K).
+ */
+double calculate_temperature_exponential(float alt, float temp_0, float scale_height) {
+    // Formula: T(h) = T(0) * exp(-h / H_T)
+    return temp_0 * exp(-alt / scale_height);
+}
+
+/**
+ * @brief Calculates the atmospheric density using an exponential model.
+ *
+ * This function calculates the air density based on an exponential fit
+ * derived from data points at 0 km and 3 km altitude. This aligns well
+ * with typical atmospheric density behaviour.
+ *
+ * @param altitude_km The altitude in kilometers (valid range assumed 0-3 km).
+ * @return The calculated density in kilograms per cubic meter (kg/m^3).
+ */
+double calculate_density_exponential(float alt, float density_0, float scale_height) {
+    // Formula: rho(h) = rho(0) * exp(-h / H_rho)
+    return density_0 * exp(-alt / scale_height);
+}
+
+
+double calculate_density_linear(float alt, float density_0, float scale_height) {
+    return density_0 * (1.0f - alt / scale_height);
+}
+
+void main_setup() { // thermal convection; required extensions in defines.hpp: FP16S, VOLUME_FORCE, TEMPERATURE, INTERACTIVE_GRAPHICS	
+	const uint Nx = 256u;
+	const uint Ny = 256u;
+	const uint Nz = 512u;
+
+	const float si_length = 3000.0f;  // reference length in [m]
+	const float si_u      = 10.0f;     // reference velocity in [m/s]
+	const float si_rho    = 1.059f; // reference density in [kg/m^3], at half height
+	const float si_ref_temp = 278.4f; // reference temperature in [K] at half height
+	const float si_nu    = 0.000015f; // Kinematic viscosity [m^2/s] of air at STP
+	const float si_g     = -9.81f;     // gravitational acceleration [m/s^2]
+	const float si_beta  = 0.0034f; // thermal expansion coefficient [1/K] of air at STP
+    const float si_alpha = 0.000022f; // Thermal diffusivity [m^2/s] for air near STP
+    const float si_cp    = 1005.0f; // Specific heat capacity [J/(kg*K)] for dry air
+
+	const float lbm_length = (float)Nz; // reference length in LBM units
+	const float lbm_u      = 0.02f;      // reference velocity in LBM units
+	const float lbm_rho    = 1.0f;      // reference density in LBM units
+	const float lbm_T      = 1.0f;	     // reference temperature in LBM units
+	units.set_m_kg_s_K(lbm_length, lbm_u, lbm_rho, lbm_T, si_length, si_u, si_rho, si_ref_temp); // calculate 4 independent conversion factors (m, kg, s, K)
+
+	const float lbm_nu = units.nu(si_nu); // LBM viscosity
+	const float lbm_beta = units.beta(si_beta); // LBM thermal expansion coefficient
+    const float lbm_alpha = units.alpha(si_alpha); // *** NEW: LBM thermal diffusivity ***
+
+	const float si_temp_top = 268.65; // top temperature in [K]
+	const float si_temp_bottom = 288.15f; // bottom temperature in [K]
+	const float si_temp_patch  = 320.00f; // patch temperature in [K]
+
+	const float si_rho_top = 0.9091f;
+	const float si_rho_bottom = 1.225f;
+
+	const float lbm_temp_top = units.T(si_temp_top); // LBM temperature
+	const float lbm_temp_bottom = units.T(si_temp_bottom); // LBM temperature
+	const float lbm_temp_patch = units.T(si_temp_patch); // LBM temperature
+
+	const float lbm_rho_top = units.rho(si_rho_top); // LBM density
+	const float lbm_rho_bottom = units.rho(si_rho_bottom); // LBM density
+
+	const float lbm_fz = units.f(si_rho, si_g); // LBM force in z direction
+
+    const float lbm_omega_T = 1.0f / (2.0f * lbm_alpha + 0.5f);   // Relaxation rate for temperature LBM
+	const float lbm_adiabatic_lapse_factor = 1.0f; 
+
+	// This assumes the kernel uses def_adiabatic_lapse_factor as the source strength multiplier
+
+	print_info("lbm_adiabatic_lapse_factor = "+to_string(lbm_adiabatic_lapse_factor, 6u));
+
+	const float temp_scale_height = -((float)Nz - (float)0) / logf(lbm_temp_top / lbm_temp_bottom);     
+	const float rho_scale_height  = -((float)Nz - (float)0) / logf(lbm_rho_top / lbm_rho_bottom);
+	const float rho_scale_height_linear = -((float)Nz - (float)0)  / (lbm_rho_top - lbm_rho_bottom); // linear scale height
+
+	// print temperature information
+	print_info("fz = "+to_string(si_g, 6u)+" m/s^2 = "+to_string(lbm_fz, 6u)+" LBM units");
+	print_info("Temperature scale height = "+to_string(temp_scale_height, 6u)+" LBM units");
+	print_info("Density scale height = "+to_string(rho_scale_height, 6u)+" LBM units");
+	
+	LBM lbm(
+		Nx,        // Nx
+		Ny,        // Ny
+		Nz,        // Nz
+		1u,        // Dx
+		1u,        // Dy
+		1u,        // Dz
+		lbm_nu,    // nu (Kinematic viscosity)
+		0.0f,      // fx 
+		0.0f,      // fy
+		lbm_fz,    // fz
+		0.0f,      // sigma (Surface tension)
+		1.0f,      // alpha (thermal diffusivity)
+		lbm_beta,  // beta  (thermal expansion coefficient)
+		0.006f
+	);
+
+	// ###################################################################################### define geometry ######################################################################################
+	parallel_for(lbm.get_N(), [&](ulong n)
+	{
+		uint x=0u, y=0u, z=0u;
+		lbm.coordinates(n, x, y, z);
+
+		lbm.T[n] = calculate_temperature_exponential((float)z, lbm_temp_bottom, temp_scale_height);
+		lbm.rho[n] = calculate_density_linear((float)z, lbm_rho_bottom, rho_scale_height_linear);
+
+		if((z==1) && (y > 118u) && (y < 138u) && (x > 118u) && (x < 138u)) {
+			lbm.T[n] = lbm_temp_patch;
+			lbm.flags[n] = TYPE_T;
+		} else if(z==Nz-2) {
+			// nothing
+		}
+
+		if(z==0u) {
+			lbm.flags[n] = TYPE_S | TYPE_T; // top and bottom non periodic
+			lbm.T[n] = lbm_temp_bottom;
+			//lbm.flags[n] = TYPE_E;
+		}
+		if(z==Nz-1u) {
+			//lbm.flags[n] = TYPE_S | TYPE_T; // top and bottom non periodic
+		 	//lbm.T[n] = lbm_temp_top;
+			lbm.flags[n] = TYPE_E;
+		}
+
+	}); // ####################################################################### run simulation, export images and data ##########################################################################
+	print_info("Calculated density at z=0: "+to_string(lbm.rho[lbm.index(Nx/2u, Ny/2u, 0u)], 6u));
+	print_info("Calculated density at z=Nz-1: "+to_string(lbm.rho[lbm.index(Nx/2u, Ny/2u, Nz-1u)], 6u));
+
+	lbm.graphics.visualization_modes = VIS_FLAG_LATTICE|VIS_STREAMLINES;
+
+	for (int j = 0; j < 100; j++) {
+		for (int i = 0; i < 5; i++) {
+			lbm.run(400);
+			lbm.rho.write_device_to_vtk(); // density
+			lbm.u.write_device_to_vtk(); // velocity
+			lbm.flags.write_device_to_vtk(); // flags
+			lbm.T.write_device_to_vtk(); // temperature, only for TEMPERATURE extension
+		}
+		lbm.run(20000);
+	}
+} /**/ 
